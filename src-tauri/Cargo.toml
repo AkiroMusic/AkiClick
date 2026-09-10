@@ -1,6 +1,6 @@
 [package]
 name = "akiclick"
-version = "1.0.0"
+version = "1.1.0"
 description = "AkiClick - Lightweight Windows Auto Clicker"
 authors = ["Akiro"]
 edition = "2021"
