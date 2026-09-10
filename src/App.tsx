@@ -72,8 +72,11 @@ const translations = {
     author: 'Author',
     description: 'A lightweight Windows auto-clicker built with Tauri v2, Rust, and React.',
     close: 'Close',
-    copyright: '© 2024 Akiro. All rights reserved.',
+    copyright: '© 2026 Akiro. All rights reserved.',
     hotkeyHint: 'Press hotkey to start/stop clicking when listening',
+    save: 'Save',
+    saved: 'Saved',
+    listeningWarning: 'Stop listening to modify settings',
   },
   zh: {
     mode: '模式',
@@ -96,8 +99,11 @@ const translations = {
     author: '作者',
     description: '一个轻量级的 Windows 自动点击器，使用 Tauri v2、Rust 和 React 构建。',
     close: '关闭',
-    copyright: '© 2024 Akiro. 保留所有权利。',
+    copyright: '© 2026 Akiro. 保留所有权利。',
     hotkeyHint: '启用监听后，按热键开始/停止点击',
+    save: '保存',
+    saved: '已保存',
+    listeningWarning: '请先停止监听再修改设置',
   }
 }
 
@@ -153,6 +159,12 @@ const LangIcon = () => (
   </svg>
 )
 
+const SaveIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+)
+
 const CLICK_MODES = [
   { value: 0, labelEn: 'Left', labelZh: '左键' },
   { value: 1, labelEn: 'Right', labelZh: '右键' },
@@ -161,6 +173,9 @@ const CLICK_MODES = [
 
 function App() {
   const [config, setConfig] = useState<Config | null>(null)
+  const [draft, setDraft] = useState<Config | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [showSaved, setShowSaved] = useState(false)
   const [listening, setListening] = useState(false)
   const [isClicking, setIsClicking] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
@@ -170,13 +185,16 @@ function App() {
   const [version, setVersion] = useState('1.0.0')
 
   const t = translations[lang]
+  const locked = listening
 
   // Load config and settings
   useEffect(() => {
-    invoke<Config>('get_config').then((cfg) => setConfig(cfg)).catch(console.error)
+    invoke<Config>('get_config').then((cfg) => {
+      setConfig(cfg)
+      setDraft(cfg)
+    }).catch(console.error)
     invoke<string>('get_version').then((v) => setVersion(v)).catch(console.error)
 
-    // Load theme
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
     if (savedTheme) {
       setTheme(savedTheme)
@@ -189,17 +207,11 @@ function App() {
       document.documentElement.dataset.theme = 'light'
     }
 
-    // Load language
     const savedLang = localStorage.getItem('lang') as 'en' | 'zh' | null
-    if (savedLang) {
-      setLang(savedLang)
-    }
+    if (savedLang) setLang(savedLang)
 
-    // Load always on top
     const savedAlwaysOnTop = localStorage.getItem('alwaysOnTop')
-    if (savedAlwaysOnTop !== null) {
-      setAlwaysOnTop(savedAlwaysOnTop === 'true')
-    }
+    if (savedAlwaysOnTop !== null) setAlwaysOnTop(savedAlwaysOnTop === 'true')
   }, [])
 
   // Event listeners
@@ -207,15 +219,14 @@ function App() {
     const unlistenListening = listen<boolean>('listening-changed', (event: Event<boolean>) => {
       setListening(event.payload)
     })
-
     const unlistenClick = listen<{ isRunning: boolean }>('click-state-changed', (event: Event<{ isRunning: boolean }>) => {
       setIsClicking(event.payload.isRunning)
     })
-
     const unlistenConfig = listen<Config>('config-changed', (event: Event<Config>) => {
       setConfig(event.payload)
+      setDraft(event.payload)
+      setDirty(false)
     })
-
     return () => {
       unlistenListening.then((fn: () => void) => fn())
       unlistenClick.then((fn: () => void) => fn())
@@ -223,7 +234,24 @@ function App() {
     }
   }, [])
 
-  // Toggle listening state
+  // Update draft (local only, not saved)
+  const updateDraft = useCallback((patch: Partial<Config>) => {
+    if (!draft || locked) return
+    setDraft({ ...draft, ...patch })
+    setDirty(true)
+  }, [draft, locked])
+
+  // Save draft to backend
+  const handleSave = useCallback(async () => {
+    if (!draft) return
+    await invoke('save_config', { config: draft })
+    setConfig(draft)
+    setDirty(false)
+    setShowSaved(true)
+    setTimeout(() => setShowSaved(false), 2000)
+  }, [draft])
+
+  // Toggle listening
   const handleToggleListening = useCallback(async () => {
     const newState = await invoke<boolean>('toggle_listening')
     setListening(newState)
@@ -253,15 +281,7 @@ function App() {
     localStorage.setItem('lang', newLang)
   }, [lang])
 
-  // Save config
-  const handleSaveConfig = useCallback(async (newConfig: Partial<Config>) => {
-    if (!config) return
-    const updatedConfig = { ...config, ...newConfig }
-    await invoke('save_config', { config: updatedConfig })
-    setConfig(updatedConfig)
-  }, [config])
-
-  if (!config) {
+  if (!config || !draft) {
     return (
       <div className="flex h-full w-full items-center justify-center">
         <div className="w-6 h-6 border-2 border-[var(--acc)] border-t-transparent rounded-full animate-spin" />
@@ -290,36 +310,20 @@ function App() {
       <header className="app-header glass-surface">
         <span className="app-title">AkiClick</span>
         <div className="header-actions">
-          {/* Language toggle */}
-          <button
-            onClick={handleToggleLang}
-            className="icon-btn"
-            title={lang === 'en' ? '切换到中文' : 'Switch to English'}
-          >
+          <button onClick={handleToggleLang} className="icon-btn"
+            title={lang === 'en' ? '切换到中文' : 'Switch to English'}>
             <LangIcon />
           </button>
-          {/* Theme toggle */}
-          <button
-            onClick={handleToggleTheme}
-            className="icon-btn"
-            title={lang === 'en' ? 'Toggle theme' : '切换主题'}
-          >
+          <button onClick={handleToggleTheme} className="icon-btn"
+            title={lang === 'en' ? 'Toggle theme' : '切换主题'}>
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}
           </button>
-          {/* Always on top */}
-          <button
-            onClick={handleToggleAlwaysOnTop}
+          <button onClick={handleToggleAlwaysOnTop}
             className={`icon-btn ${alwaysOnTop ? 'active' : ''}`}
-            title={lang === 'en' ? 'Toggle always on top' : '切换窗口置顶'}
-          >
+            title={lang === 'en' ? 'Toggle always on top' : '切换窗口置顶'}>
             <PinIcon active={alwaysOnTop} />
           </button>
-          {/* Info */}
-          <button
-            onClick={() => setShowAbout(true)}
-            className="icon-btn"
-            title={t.about}
-          >
+          <button onClick={() => setShowAbout(true)} className="icon-btn" title={t.about}>
             <InfoIcon />
           </button>
         </div>
@@ -334,8 +338,9 @@ function App() {
             {CLICK_MODES.map((mode) => (
               <button
                 key={mode.value}
-                onClick={() => handleSaveConfig({ mode: mode.value })}
-                className={`seg-btn ${config.mode === mode.value ? 'active' : ''}`}
+                onClick={() => updateDraft({ mode: mode.value })}
+                className={`seg-btn ${draft.mode === mode.value ? 'active' : ''} ${locked ? 'disabled' : ''}`}
+                disabled={locked}
                 title={lang === 'en' ? `Click mode: ${mode.labelEn}` : `点击模式: ${mode.labelZh}`}
               >
                 {lang === 'en' ? mode.labelEn : mode.labelZh}
@@ -352,9 +357,10 @@ function App() {
               type="number"
               min="1"
               max="60000"
-              value={config.freq}
-              onChange={(e) => handleSaveConfig({ freq: parseInt(e.target.value) || 1 })}
+              value={draft.freq}
+              onChange={(e) => updateDraft({ freq: parseInt(e.target.value) || 1 })}
               className="num-input"
+              disabled={locked}
               title={lang === 'en' ? 'Click interval in milliseconds' : '点击间隔（毫秒）'}
             />
           </div>
@@ -364,9 +370,10 @@ function App() {
               type="number"
               min="0"
               max="999999"
-              value={config.clicktimes}
-              onChange={(e) => handleSaveConfig({ clicktimes: parseInt(e.target.value) || 0 })}
+              value={draft.clicktimes}
+              onChange={(e) => updateDraft({ clicktimes: parseInt(e.target.value) || 0 })}
               className="num-input"
+              disabled={locked}
               title={lang === 'en' ? 'Number of clicks (0 = infinite)' : '点击次数（0 = 无限）'}
             />
           </div>
@@ -377,9 +384,10 @@ function App() {
           <div>
             <div className="section-label">{t.start}</div>
             <select
-              value={vkToName(config.left)}
-              onChange={(e) => handleSaveConfig({ left: nameToVk(e.target.value) })}
+              value={vkToName(draft.left)}
+              onChange={(e) => updateDraft({ left: nameToVk(e.target.value) })}
               className="hk-input"
+              disabled={locked}
               title={lang === 'en' ? 'Start hotkey' : '开始热键'}
             >
               {HOTKEY_OPTIONS.map((opt) => (
@@ -390,9 +398,10 @@ function App() {
           <div>
             <div className="section-label">{t.stop}</div>
             <select
-              value={vkToName(config.right)}
-              onChange={(e) => handleSaveConfig({ right: nameToVk(e.target.value) })}
+              value={vkToName(draft.right)}
+              onChange={(e) => updateDraft({ right: nameToVk(e.target.value) })}
               className="hk-input"
+              disabled={locked}
               title={lang === 'en' ? 'Stop hotkey' : '停止热键'}
             >
               {HOTKEY_OPTIONS.map((opt) => (
@@ -403,9 +412,10 @@ function App() {
           <div>
             <div className="section-label">{t.exit}</div>
             <select
-              value={vkToName(config.stop)}
-              onChange={(e) => handleSaveConfig({ stop: nameToVk(e.target.value) })}
+              value={vkToName(draft.stop)}
+              onChange={(e) => updateDraft({ stop: nameToVk(e.target.value) })}
               className="hk-input"
+              disabled={locked}
               title={lang === 'en' ? 'Exit hotkey' : '退出热键'}
             >
               {HOTKEY_OPTIONS.map((opt) => (
@@ -419,6 +429,19 @@ function App() {
         <div className="hotkey-hint">{t.hotkeyHint}</div>
 
         <div className="sep" />
+
+        {/* Save button or saved indicator */}
+        <section>
+          {locked ? (
+            <div className="hotkey-hint">{t.listeningWarning}</div>
+          ) : showSaved ? (
+            <div className="saved-indicator">
+              <SaveIcon /> {t.saved}
+            </div>
+          ) : dirty ? (
+            <button className="save-btn" onClick={handleSave}>{t.save}</button>
+          ) : null}
+        </section>
 
         {/* Listening toggle button */}
         <section>
@@ -453,7 +476,7 @@ function App() {
               </button>
             </div>
             <div className="modal-body">
-              <div className="about-logo">AkiClick</div>
+              <img src="/icon.png" alt="AkiClick" className="about-logo" />
               <div className="about-version">{t.version} {version}</div>
               <p className="about-desc">{t.description}</p>
               <div className="about-author">
