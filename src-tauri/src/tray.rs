@@ -1,6 +1,53 @@
 use tauri::{AppHandle, Manager, Emitter, image::Image};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use std::path::PathBuf;
+
+/// Load icon from file or create default
+fn load_icon() -> Image<'static> {
+    // Try to load icon from various locations
+    let possible_paths = vec![
+        "icon.png".to_string(),
+        "icons/icon.png".to_string(),
+    ];
+    
+    // Also check exe directory
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            for name in &["icon.png", "icons/icon.png"] {
+                let path = exe_dir.join(name);
+                if path.exists() {
+                    if let Ok(img) = load_image_from_file(&path) {
+                        return img;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Check current directory
+    for path_str in &possible_paths {
+        let path = PathBuf::from(path_str);
+        if path.exists() {
+            if let Ok(img) = load_image_from_file(&path) {
+                return img;
+            }
+        }
+    }
+    
+    // Fallback to default icon
+    create_default_icon()
+}
+
+/// Load PNG image from file
+fn load_image_from_file(path: &std::path::Path) -> Result<Image<'static>, Box<dyn std::error::Error>> {
+    let data = std::fs::read(path)?;
+    let img = image::load_from_memory(&data)?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let pixels = rgba.into_raw();
+    Ok(Image::new_owned(pixels, width, height))
+}
 
 // Create a simple 32x32 RGBA icon (blue square with white cross)
 fn create_default_icon() -> Image<'static> {
@@ -27,32 +74,23 @@ fn create_default_icon() -> Image<'static> {
 pub fn create_tray(app_handle: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let show_item = MenuItemBuilder::new("Show")
         .id("show")
-        .accelerator("F11")
         .build(&app_handle)?;
 
-    let start_item = MenuItemBuilder::new("Start Clicking")
-        .id("start")
-        .accelerator("F9")
-        .build(&app_handle)?;
-
-    let stop_item = MenuItemBuilder::new("Stop Clicking")
-        .id("stop")
-        .accelerator("F10")
-        .enabled(false)
+    let toggle_listening_item = MenuItemBuilder::new("Enable Listening")
+        .id("toggle_listening")
         .build(&app_handle)?;
 
     let separator = PredefinedMenuItem::separator(&app_handle)?;
 
     let quit_item = MenuItemBuilder::new("Quit")
         .id("quit")
-        .accelerator("Ctrl+Q")
         .build(&app_handle)?;
 
     let menu = MenuBuilder::new(&app_handle)
-        .items(&[&show_item, &separator, &start_item, &stop_item, &separator, &quit_item])
+        .items(&[&show_item, &separator, &toggle_listening_item, &separator, &quit_item])
         .build()?;
 
-    let icon = create_default_icon();
+    let icon = load_icon();
 
     let app_handle_clone1 = app_handle.clone();
     let app_handle_clone2 = app_handle.clone();
@@ -68,11 +106,13 @@ pub fn create_tray(app_handle: AppHandle) -> Result<(), Box<dyn std::error::Erro
                         let _ = window.set_focus();
                     }
                 }
-                "start" => {
-                    app_handle.emit("start-click-hotkey", ()).ok();
-                }
-                "stop" => {
-                    app_handle.emit("stop-click-hotkey", ()).ok();
+                "toggle_listening" => {
+                    let state = app_handle.state::<crate::AppState>();
+                    let mut listening = state.listening.lock().unwrap();
+                    *listening = !*listening;
+                    let new_state = *listening;
+                    drop(listening);
+                    app_handle.emit("listening-changed", new_state).ok();
                 }
                 "quit" => {
                     app_handle.exit(0);

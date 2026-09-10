@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build output
 dist/
@@ -23,3 +24,9 @@ src-tauri/target/
 
 # Logs
 *.log
+
+# Agent sessions
+.omo/
+
+# Root icon (used for building, not source)
+icon.png

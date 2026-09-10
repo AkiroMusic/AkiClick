@@ -6,16 +6,13 @@ mod config;
 mod hotkeys;
 mod tray;
 
-use clicker::ClickEngine;
 use config::Config;
-use hotkeys::register_default_hotkeys;
-use tray::create_tray;
 use tauri::Manager;
 
-#[derive(Default)]
-struct AppState {
-    click_engine: std::sync::Mutex<Option<ClickEngine>>,
-    config: std::sync::Mutex<Option<Config>>,
+pub struct AppState {
+    pub click_engine: std::sync::Mutex<Option<clicker::ClickEngine>>,
+    pub config: std::sync::Mutex<Option<Config>>,
+    pub listening: std::sync::Mutex<bool>,
 }
 
 fn main() {
@@ -30,7 +27,11 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_process::init())
-        .manage(AppState::default())
+        .manage(AppState {
+            click_engine: std::sync::Mutex::new(None),
+            config: std::sync::Mutex::new(None),
+            listening: std::sync::Mutex::new(false),
+        })
         .setup(|app| {
             // Load config
             let config = Config::load().unwrap_or_default();
@@ -43,23 +44,31 @@ fn main() {
                 }
             }
             
-            *app.state::<AppState>().config.lock().unwrap() = Some(config.clone());
+            // Update state with loaded config
+            {
+                let state = app.state::<AppState>();
+                let mut config_guard = state.config.lock().unwrap();
+                *config_guard = Some(config.clone());
+            }
 
             // Register global hotkeys
-            register_default_hotkeys(app.handle().clone(), config.clone());
+            {
+                let state = app.state::<AppState>();
+                let config_guard = state.config.lock().unwrap();
+                hotkeys::register_hotkeys(&app.handle().clone(), config_guard.as_ref().unwrap());
+            }
 
             // Create system tray
-            create_tray(app.handle().clone())?;
+            tray::create_tray(app.handle().clone())?;
 
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_config,
             commands::save_config,
-            commands::start_clicking,
-            commands::stop_clicking,
+            commands::toggle_listening,
+            commands::get_listening,
             commands::get_version,
-            commands::register_hotkeys,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

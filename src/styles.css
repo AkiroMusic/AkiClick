@@ -13,6 +13,7 @@
   --acc: #6C8CFF;
   --err: #D9695F;
   --ok: #4FAE8A;
+  --warn: #E8A33D;
 }
 
 [data-theme='light'] {
@@ -26,6 +27,7 @@
   --acc: #5B7FFF;
   --err: #FF3B30;
   --ok: #34C759;
+  --warn: #E8A33D;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -181,6 +183,14 @@ html, body, #root {
 }
 .num-input:focus, .hk-input:focus { border-color: var(--acc); }
 
+/* Hotkey hint */
+.hotkey-hint {
+  font-size: 10px;
+  color: var(--txt3);
+  text-align: center;
+  font-style: italic;
+}
+
 /* Separator */
 .sep {
   height: 1px;
@@ -188,35 +198,30 @@ html, body, #root {
   opacity: 0.5;
 }
 
-/* Action buttons */
-.act-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
-  font-size: 12px;
+/* Listening button */
+.listen-btn {
+  width: 100%;
+  padding: 10px 16px;
+  font-size: 13px;
   font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s;
-  border: 1px solid;
+  transition: all 0.2s;
+  border: 1px solid var(--brd);
+  background: var(--surf2);
+  color: var(--txt2);
 }
-.act-btn.primary {
-  color: var(--acc);
+.listen-btn:hover {
   border-color: var(--acc);
-  background: rgba(108, 140, 255, 0.1);
+  color: var(--acc);
+  background: rgba(108, 140, 255, 0.08);
 }
-.act-btn.primary:hover:not(:disabled) { background: rgba(108, 140, 255, 0.18); }
-.act-btn.primary:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.act-btn.danger {
-  color: var(--err);
-  border-color: var(--err);
-  background: rgba(217, 105, 95, 0.1);
+.listen-btn.active {
+  border-color: var(--ok);
+  color: var(--ok);
+  background: rgba(79, 174, 138, 0.1);
+  box-shadow: 0 0 12px rgba(79, 174, 138, 0.2);
 }
-.act-btn.danger:hover:not(:disabled) { background: rgba(217, 105, 95, 0.18); }
-.act-btn.danger:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* Status */
 .status {
@@ -232,7 +237,12 @@ html, body, #root {
   border-radius: 6px;
   width: fit-content;
 }
-.status.running {
+.status.listening {
+  color: var(--warn);
+  background: rgba(232, 163, 61, 0.1);
+  border-color: rgba(232, 163, 61, 0.3);
+}
+.status.clicking {
   color: var(--ok);
   background: rgba(79, 174, 138, 0.1);
   border-color: rgba(79, 174, 138, 0.3);
@@ -245,8 +255,12 @@ html, body, #root {
   background: var(--brd);
 }
 .dot.on {
-  background: var(--ok);
+  background: var(--warn);
   animation: pulse 1.5s infinite;
+}
+.dot.clicking {
+  background: var(--ok);
+  animation: pulse 0.8s infinite;
 }
 
 @keyframes pulse {
@@ -255,12 +269,100 @@ html, body, #root {
 }
 
 /* Footer */
-.footer {
+.app-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
+  padding: 8px 12px;
   font-size: 10px;
   color: var(--txt3);
-  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  z-index: 1;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  width: 320px;
+  border-radius: 12px;
+  border: 1px solid var(--brd);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--brd);
+}
+
+.modal-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--txt);
+}
+
+.modal-body {
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.about-logo {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--acc);
+}
+
+.about-version {
+  font-size: 12px;
+  color: var(--txt3);
+}
+
+.about-desc {
+  font-size: 12px;
+  color: var(--txt2);
+  text-align: center;
+  line-height: 1.5;
+  margin: 8px 0;
+}
+
+.about-author {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--brd);
+  width: 100%;
+}
+
+.author-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--txt);
+}
+
+.author-link {
+  font-size: 11px;
+  color: var(--acc);
+  text-decoration: none;
+}
+.author-link:hover {
+  text-decoration: underline;
 }
 
 /* Scrollbar */

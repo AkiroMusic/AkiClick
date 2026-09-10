@@ -28,6 +28,7 @@ parking_lot = "0.12"
 tokio = { version = "1.38", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+image = "0.25"
 
 [profile.release]
 opt-level = 3
