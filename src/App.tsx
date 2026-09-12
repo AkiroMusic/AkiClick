@@ -1,169 +1,26 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import type { Event } from '@tauri-apps/api/event'
-import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { translations } from './i18n'
+import type { Lang } from './i18n'
+import { vkToName, nameToVk, HOTKEY_OPTIONS } from './vkCodes'
+import { SunIcon, MoonIcon, PinIcon, InfoIcon, LangIcon, SaveIcon } from './icons'
+import { AboutModal } from './components/AboutModal'
+import type { Config } from './types'
 
-// ==================== Types ====================
-interface Config {
-  mode: number
-  freq: number
-  clicktimes: number
-  clickstate: number
-  showstate: number
-  left: number
-  right: number
-  stop: number
+// ==================== Helpers ====================
+
+const MIN_INTERVAL = 1
+const MAX_INTERVAL = 60000
+const MAX_COUNT = 999999
+
+/** Parse an input value and clamp it into [min, max]; NaN falls back. */
+function parseClamped(raw: string, min: number, max: number, fallback: number): number {
+  const n = parseInt(raw, 10)
+  if (Number.isNaN(n)) return fallback
+  return Math.min(max, Math.max(min, n))
 }
-
-// ==================== VK Code Mapping ====================
-const VK_CODES: Record<number, string> = {
-  112: 'F1', 113: 'F2', 114: 'F3', 115: 'F4',
-  116: 'F5', 117: 'F6', 118: 'F7', 119: 'F8',
-  120: 'F9', 121: 'F10', 122: 'F11', 123: 'F12',
-  48: '0', 49: '1', 50: '2', 51: '3', 52: '4',
-  53: '5', 54: '6', 55: '7', 56: '8', 57: '9',
-  65: 'A', 66: 'B', 67: 'C', 68: 'D', 69: 'E',
-  70: 'F', 71: 'G', 72: 'H', 73: 'I', 74: 'J',
-  75: 'K', 76: 'L', 77: 'M', 78: 'N', 79: 'O',
-  80: 'P', 81: 'Q', 82: 'R', 83: 'S', 84: 'T',
-  85: 'U', 86: 'V', 87: 'W', 88: 'X', 89: 'Y', 90: 'Z',
-  96: 'Num0', 97: 'Num1', 98: 'Num2', 99: 'Num3', 100: 'Num4',
-  101: 'Num5', 102: 'Num6', 103: 'Num7', 104: 'Num8', 105: 'Num9',
-}
-
-const NAME_TO_VK: Record<string, number> = Object.fromEntries(
-  Object.entries(VK_CODES).map(([vk, name]) => [name, parseInt(vk)])
-)
-
-const HOTKEY_OPTIONS = Object.entries(VK_CODES).map(([vk, name]) => ({
-  value: parseInt(vk),
-  label: name,
-}))
-
-function vkToName(vk: number): string {
-  return VK_CODES[vk] || String(vk)
-}
-
-function nameToVk(name: string): number {
-  return NAME_TO_VK[name] || 120
-}
-
-// ==================== i18n ====================
-const translations = {
-  en: {
-    mode: 'MODE',
-    interval: 'INTERVAL (MS)',
-    count: 'COUNT (∞=0)',
-    hotkeys: 'HOTKEYS',
-    start: 'START',
-    stop: 'STOP',
-    exit: 'EXIT',
-    enableListening: 'Enable Listening',
-    disableListening: 'Disable Listening',
-    idle: 'Idle',
-    listening: 'Listening...',
-    clicking: 'Clicking...',
-    left: 'Left',
-    right: 'Right',
-    double: 'Double',
-    about: 'About',
-    version: 'Version',
-    author: 'Author',
-    description: 'A lightweight Windows auto-clicker built with Tauri v2, Rust, and React.',
-    close: 'Close',
-    copyright: '© 2026 Akiro. All rights reserved.',
-    hotkeyHint: 'Press hotkey to start/stop clicking when listening',
-    save: 'Save',
-    saved: 'Saved',
-    listeningWarning: 'Stop listening to modify settings',
-  },
-  zh: {
-    mode: '模式',
-    interval: '间隔 (毫秒)',
-    count: '次数 (∞=0)',
-    hotkeys: '热键',
-    start: '开始',
-    stop: '停止',
-    exit: '退出',
-    enableListening: '启用监听',
-    disableListening: '禁用监听',
-    idle: '空闲',
-    listening: '监听中...',
-    clicking: '点击中...',
-    left: '左键',
-    right: '右键',
-    double: '双击',
-    about: '关于',
-    version: '版本',
-    author: '作者',
-    description: '一个轻量级的 Windows 自动点击器，使用 Tauri v2、Rust 和 React 构建。',
-    close: '关闭',
-    copyright: '© 2026 Akiro. 保留所有权利。',
-    hotkeyHint: '启用监听后，按热键开始/停止点击',
-    save: '保存',
-    saved: '已保存',
-    listeningWarning: '请先停止监听再修改设置',
-  }
-}
-
-// ==================== SVG Icons ====================
-const SunIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="5"/>
-    <line x1="12" y1="1" x2="12" y2="3"/>
-    <line x1="12" y1="21" x2="12" y2="23"/>
-    <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-    <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-    <line x1="1" y1="12" x2="3" y2="12"/>
-    <line x1="21" y1="12" x2="23" y2="12"/>
-    <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-    <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-  </svg>
-)
-
-const MoonIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-  </svg>
-)
-
-const PinIcon = ({ active }: { active: boolean }) => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 2L12 22"/>
-    <path d="M5 12L12 5L19 12"/>
-    <circle cx="12" cy="5" r="2"/>
-  </svg>
-)
-
-const InfoIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <line x1="12" y1="16" x2="12" y2="12"/>
-    <line x1="12" y1="8" x2="12.01" y2="8"/>
-  </svg>
-)
-
-const XIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6" x2="6" y2="18"/>
-    <line x1="6" y1="6" x2="18" y2="18"/>
-  </svg>
-)
-
-const LangIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <line x1="2" y1="12" x2="22" y2="12"/>
-    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-  </svg>
-)
-
-const SaveIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12"/>
-  </svg>
-)
 
 const CLICK_MODES = [
   { value: 0, labelEn: 'Left', labelZh: '左键' },
@@ -176,42 +33,36 @@ function App() {
   const [draft, setDraft] = useState<Config | null>(null)
   const [dirty, setDirty] = useState(false)
   const [showSaved, setShowSaved] = useState(false)
+  const [saveFailed, setSaveFailed] = useState(false)
   const [listening, setListening] = useState(false)
   const [isClicking, setIsClicking] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>('dark')
   const [alwaysOnTop, setAlwaysOnTop] = useState(true)
-  const [lang, setLang] = useState<'en' | 'zh'>('en')
+  const [lang, setLang] = useState<Lang>('en')
   const [showAbout, setShowAbout] = useState(false)
-  const [version, setVersion] = useState('1.0.0')
+  const [version, setVersion] = useState('')
+  const [hotkeyWarning, setHotkeyWarning] = useState('')
+  const savedTimer = useRef<number | null>(null)
 
   const t = translations[lang]
   const locked = listening
 
-  // Load config and settings
+  // Load config and preferences (all persisted in shubiao.ini on the backend)
   useEffect(() => {
     invoke<Config>('get_config').then((cfg) => {
       setConfig(cfg)
       setDraft(cfg)
+      applyTheme(cfg.theme === 'light' ? 'light' : 'dark')
+      const l: Lang = cfg.lang === 'zh' ? 'zh' : 'en'
+      setLang(l)
+      document.documentElement.lang = l
+      setAlwaysOnTop(cfg.always_on_top === 1)
     }).catch(console.error)
     invoke<string>('get_version').then((v) => setVersion(v)).catch(console.error)
 
-    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark' | null
-    if (savedTheme) {
-      setTheme(savedTheme)
-      document.documentElement.dataset.theme = savedTheme
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark')
-      document.documentElement.dataset.theme = 'dark'
-    } else {
-      setTheme('light')
-      document.documentElement.dataset.theme = 'light'
+    return () => {
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)
     }
-
-    const savedLang = localStorage.getItem('lang') as 'en' | 'zh' | null
-    if (savedLang) setLang(savedLang)
-
-    const savedAlwaysOnTop = localStorage.getItem('alwaysOnTop')
-    if (savedAlwaysOnTop !== null) setAlwaysOnTop(savedAlwaysOnTop === 'true')
   }, [])
 
   // Event listeners
@@ -226,29 +77,65 @@ function App() {
       setConfig(event.payload)
       setDraft(event.payload)
       setDirty(false)
+      setHotkeyWarning('')
+    })
+    const unlistenHotkeyError = listen<{ message: string }>('hotkey-error', (event: Event<{ message: string }>) => {
+      setHotkeyWarning(event.payload.message)
     })
     return () => {
       unlistenListening.then((fn: () => void) => fn())
       unlistenClick.then((fn: () => void) => fn())
       unlistenConfig.then((fn: () => void) => fn())
+      unlistenHotkeyError.then((fn: () => void) => fn())
     }
   }, [])
 
-  // Update draft (local only, not saved)
+  const applyTheme = useCallback((next: 'light' | 'dark') => {
+    setTheme(next)
+    document.documentElement.dataset.theme = next
+  }, [])
+
+  // Update draft (local only, not saved until the Save button is used)
   const updateDraft = useCallback((patch: Partial<Config>) => {
     if (!draft || locked) return
     setDraft({ ...draft, ...patch })
     setDirty(true)
   }, [draft, locked])
 
-  // Save draft to backend
+  // Persist UI preferences immediately (separate from the settings draft)
+  const updatePrefs = useCallback(async (patch: Partial<Config>) => {
+    if (!config || !draft) return
+    const nextConfig = { ...config, ...patch }
+    const nextDraft = { ...draft, ...patch }
+    setConfig(nextConfig)
+    setDraft(nextDraft)
+    try {
+      await invoke('save_preferences', {
+        theme: nextConfig.theme,
+        lang: nextConfig.lang,
+        alwaysOnTop: nextConfig.always_on_top,
+      })
+    } catch (e) {
+      console.error(e)
+    }
+  }, [config, draft])
+
+  // Save draft to backend; the backend returns the sanitized config
   const handleSave = useCallback(async () => {
     if (!draft) return
-    await invoke('save_config', { config: draft })
-    setConfig(draft)
-    setDirty(false)
-    setShowSaved(true)
-    setTimeout(() => setShowSaved(false), 2000)
+    try {
+      const saved = await invoke<Config>('save_config', { config: draft })
+      setConfig(saved)
+      setDraft(saved)
+      setDirty(false)
+      setSaveFailed(false)
+      setShowSaved(true)
+      if (savedTimer.current !== null) window.clearTimeout(savedTimer.current)
+      savedTimer.current = window.setTimeout(() => setShowSaved(false), 2000)
+    } catch (e) {
+      console.error(e)
+      setSaveFailed(true)
+    }
   }, [draft])
 
   // Toggle listening
@@ -259,27 +146,25 @@ function App() {
 
   // Toggle theme
   const handleToggleTheme = useCallback(() => {
-    const newTheme = theme === 'light' ? 'dark' : 'light'
-    setTheme(newTheme)
-    localStorage.setItem('theme', newTheme)
-    document.documentElement.dataset.theme = newTheme
-  }, [theme])
+    const next = theme === 'light' ? 'dark' : 'light'
+    applyTheme(next)
+    void updatePrefs({ theme: next })
+  }, [theme, applyTheme, updatePrefs])
 
-  // Toggle always on top
-  const handleToggleAlwaysOnTop = useCallback(async () => {
-    const newValue = !alwaysOnTop
-    setAlwaysOnTop(newValue)
-    localStorage.setItem('alwaysOnTop', String(newValue))
-    const window = getCurrentWebviewWindow()
-    await window.setAlwaysOnTop(newValue)
-  }, [alwaysOnTop])
+  // Toggle always on top (the backend applies it to the window)
+  const handleToggleAlwaysOnTop = useCallback(() => {
+    const next = !alwaysOnTop
+    setAlwaysOnTop(next)
+    void updatePrefs({ always_on_top: next ? 1 : 0 })
+  }, [alwaysOnTop, updatePrefs])
 
   // Toggle language
   const handleToggleLang = useCallback(() => {
-    const newLang = lang === 'en' ? 'zh' : 'en'
-    setLang(newLang)
-    localStorage.setItem('lang', newLang)
-  }, [lang])
+    const next: Lang = lang === 'en' ? 'zh' : 'en'
+    setLang(next)
+    document.documentElement.lang = next
+    void updatePrefs({ lang: next })
+  }, [lang, updatePrefs])
 
   if (!config || !draft) {
     return (
@@ -301,6 +186,9 @@ function App() {
     return 'status'
   }
 
+  const hotkeyConflict =
+    draft.left === draft.right || draft.left === draft.stop || draft.right === draft.stop
+
   return (
     <div className="app-root">
       <div className="ambient-bg" />
@@ -311,19 +199,21 @@ function App() {
         <span className="app-title">AkiClick</span>
         <div className="header-actions">
           <button onClick={handleToggleLang} className="icon-btn"
-            title={lang === 'en' ? '切换到中文' : 'Switch to English'}>
+            title={t.switchLang} aria-label={t.switchLang}>
             <LangIcon />
           </button>
           <button onClick={handleToggleTheme} className="icon-btn"
-            title={lang === 'en' ? 'Toggle theme' : '切换主题'}>
+            title={t.themeToggle} aria-label={t.themeToggle}>
             {theme === 'light' ? <MoonIcon /> : <SunIcon />}
           </button>
           <button onClick={handleToggleAlwaysOnTop}
             className={`icon-btn ${alwaysOnTop ? 'active' : ''}`}
-            title={lang === 'en' ? 'Toggle always on top' : '切换窗口置顶'}>
+            title={t.pinToggle} aria-label={t.pinToggle}
+            aria-pressed={alwaysOnTop}>
             <PinIcon active={alwaysOnTop} />
           </button>
-          <button onClick={() => setShowAbout(true)} className="icon-btn" title={t.about}>
+          <button onClick={() => setShowAbout(true)} className="icon-btn"
+            title={t.about} aria-label={t.about}>
             <InfoIcon />
           </button>
         </div>
@@ -341,7 +231,7 @@ function App() {
                 onClick={() => updateDraft({ mode: mode.value })}
                 className={`seg-btn ${draft.mode === mode.value ? 'active' : ''} ${locked ? 'disabled' : ''}`}
                 disabled={locked}
-                title={lang === 'en' ? `Click mode: ${mode.labelEn}` : `点击模式: ${mode.labelZh}`}
+                title={t.modeTooltip.replace('{mode}', lang === 'en' ? mode.labelEn : mode.labelZh)}
               >
                 {lang === 'en' ? mode.labelEn : mode.labelZh}
               </button>
@@ -355,26 +245,28 @@ function App() {
             <div className="section-label">{t.interval}</div>
             <input
               type="number"
-              min="1"
-              max="60000"
+              min={MIN_INTERVAL}
+              max={MAX_INTERVAL}
               value={draft.freq}
-              onChange={(e) => updateDraft({ freq: parseInt(e.target.value) || 1 })}
+              onChange={(e) => updateDraft({ freq: parseClamped(e.target.value, MIN_INTERVAL, MAX_INTERVAL, MIN_INTERVAL) })}
               className="num-input"
               disabled={locked}
-              title={lang === 'en' ? 'Click interval in milliseconds' : '点击间隔（毫秒）'}
+              title={t.intervalTooltip}
+              aria-label={t.intervalTooltip}
             />
           </div>
           <div>
             <div className="section-label">{t.count}</div>
             <input
               type="number"
-              min="0"
-              max="999999"
+              min={0}
+              max={MAX_COUNT}
               value={draft.clicktimes}
-              onChange={(e) => updateDraft({ clicktimes: parseInt(e.target.value) || 0 })}
+              onChange={(e) => updateDraft({ clicktimes: parseClamped(e.target.value, 0, MAX_COUNT, 0) })}
               className="num-input"
               disabled={locked}
-              title={lang === 'en' ? 'Number of clicks (0 = infinite)' : '点击次数（0 = 无限）'}
+              title={t.countTooltip}
+              aria-label={t.countTooltip}
             />
           </div>
         </section>
@@ -388,7 +280,8 @@ function App() {
               onChange={(e) => updateDraft({ left: nameToVk(e.target.value) })}
               className="hk-input"
               disabled={locked}
-              title={lang === 'en' ? 'Start hotkey' : '开始热键'}
+              title={t.start}
+              aria-label={t.start}
             >
               {HOTKEY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.label}>{opt.label}</option>
@@ -402,7 +295,8 @@ function App() {
               onChange={(e) => updateDraft({ right: nameToVk(e.target.value) })}
               className="hk-input"
               disabled={locked}
-              title={lang === 'en' ? 'Stop hotkey' : '停止热键'}
+              title={t.stop}
+              aria-label={t.stop}
             >
               {HOTKEY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.label}>{opt.label}</option>
@@ -416,7 +310,8 @@ function App() {
               onChange={(e) => updateDraft({ stop: nameToVk(e.target.value) })}
               className="hk-input"
               disabled={locked}
-              title={lang === 'en' ? 'Exit hotkey' : '退出热键'}
+              title={t.exit}
+              aria-label={t.exit}
             >
               {HOTKEY_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.label}>{opt.label}</option>
@@ -425,22 +320,37 @@ function App() {
           </div>
         </section>
 
+        {hotkeyConflict && (
+          <div className="hotkey-hint error" role="alert">{t.hotkeyConflict}</div>
+        )}
+        {hotkeyWarning && (
+          <div className="hotkey-hint error" role="alert">{hotkeyWarning}</div>
+        )}
+
         {/* Hotkey hint */}
         <div className="hotkey-hint">{t.hotkeyHint}</div>
 
         <div className="sep" />
 
-        {/* Save button or saved indicator */}
+        {/* Save button / saved / error indicators */}
         <section>
           {locked ? (
             <div className="hotkey-hint">{t.listeningWarning}</div>
-          ) : showSaved ? (
-            <div className="saved-indicator">
-              <SaveIcon /> {t.saved}
-            </div>
-          ) : dirty ? (
-            <button className="save-btn" onClick={handleSave}>{t.save}</button>
-          ) : null}
+          ) : (
+            <>
+              {showSaved && (
+                <div className="saved-indicator">
+                  <SaveIcon /> {t.saved}
+                </div>
+              )}
+              {dirty && (
+                <button className="save-btn" onClick={handleSave}>{t.save}</button>
+              )}
+              {saveFailed && (
+                <div className="hotkey-hint error" role="alert">{t.saveFailed}</div>
+              )}
+            </>
+          )}
         </section>
 
         {/* Listening toggle button */}
@@ -448,6 +358,7 @@ function App() {
           <button
             onClick={handleToggleListening}
             className={`listen-btn ${listening ? 'active' : ''}`}
+            aria-pressed={listening}
           >
             {listening ? t.disableListening : t.enableListening}
           </button>
@@ -467,27 +378,7 @@ function App() {
 
       {/* About Modal */}
       {showAbout && (
-        <div className="modal-overlay" onClick={() => setShowAbout(false)}>
-          <div className="modal-content glass-surface" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>{t.about} AkiClick</h2>
-              <button className="icon-btn" onClick={() => setShowAbout(false)}>
-                <XIcon />
-              </button>
-            </div>
-            <div className="modal-body">
-              <img src="/icon.png" alt="AkiClick" className="about-logo" />
-              <div className="about-version">{t.version} {version}</div>
-              <p className="about-desc">{t.description}</p>
-              <div className="about-author">
-                <div className="author-name">{t.author}: Akiro</div>
-                <a href="https://akiromusic.com" target="_blank" rel="noopener noreferrer" className="author-link">
-                  akiromusic.com
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AboutModal t={t} version={version} onClose={() => setShowAbout(false)} />
       )}
     </div>
   )

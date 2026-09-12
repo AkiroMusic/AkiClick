@@ -29,4 +29,12 @@ src-tauri/target/
 .omo/
 
 # Root icon (used for building, not source)
-icon.png
+/icon.png
+# Squared icon source (generated from icon.png)
+/icon-source.png
+
+# Tauri build-time generated schemas
+/src-tauri/gen/schemas/
+
+# ZCode session data
+.zcode/

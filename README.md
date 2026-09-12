@@ -4,27 +4,29 @@ A lightweight Windows auto-clicker built with Tauri v2, Rust, and React.
 
 ## Features
 
-- **Three click modes**: Left click, Right click, Double click
-- **Customizable interval**: Set click interval from 1ms to 60,000ms
+- **Three click modes**: Left click, Right click, Double click (one double-click per interval)
+- **Customizable interval**: 1 ms to 60,000 ms (effective precision is limited by the Windows timer granularity, roughly 15 ms)
 - **Click count**: Set number of clicks or run infinitely (0 = ∞)
-- **Global hotkeys**: F9 to start, F10 to stop, F11 to exit (customizable)
-- **System tray**: Minimize to tray with menu controls
-- **Always-on-top**: Keep window above other windows
+- **Global hotkeys**: F9 to start, F10 to stop, F11 to exit (customizable, take effect immediately after saving — no restart needed)
+- **Listening gate**: Hotkeys are only active while listening is enabled; turning listening off also stops an in-progress session
+- **System tray**: Menu controls (Show / Enable Listening / Quit); closing the window exits the app
+- **Always-on top**: Keep the window above other windows
 - **Dark/Light theme**: Toggle between themes
-- **Portable mode**: Place `shubiao.ini` next to the executable
-- **REF compatible**: Uses same config format as 鼠标连点器
+- **Interface languages**: English and Chinese (中文)
+- **Portable mode**: Place `shubiao.ini` next to the executable — all settings, including theme/language, live in the INI
+- **REF compatible**: Uses the same config format as 鼠标连点器
 
 ## Installation
 
 ### Download
 
-Download the latest release from [Releases](https://github.com/AkiroDev/AkiClick/releases).
+Download the latest release from [Releases](https://github.com/AkiroMusic/AkiClick/releases).
 
 ### Build from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/AkiroDev/AkiClick.git
+git clone https://github.com/AkiroMusic/AkiClick.git
 cd AkiClick
 
 # Install dependencies
@@ -34,60 +36,55 @@ npm install
 npm run tauri build
 ```
 
-The installer will be located at `src-tauri/target/release/bundle/nsis/AkiClick_1.0.0_x64-setup.exe`.
+The installer will be located at `src-tauri/target/release/bundle/nsis/AkiClick_1.3.0_x64-setup.exe`.
 
 ## Usage
 
 1. Run `AkiClick.exe`
-2. Configure click mode, interval, and count
-3. Press **F9** to start clicking
-4. Press **F10** to stop clicking
-5. Press **F11** to exit the application
+2. Configure click mode, interval, and count, then press **Save**
+3. Press **Enable Listening**
+4. Press **F9** to start clicking
+5. Press **F10** to stop clicking
+6. Press **F11** to exit the application
 
-### Portable Mode
-
-Create a `shubiao.ini` file next to `AkiClick.exe` with the following content:
-
-```ini
-mode=0
-freq=700
-clicktimes=100
-clickstate=1
-showstate=0
-left=120
-right=121
-stop=122
-```
+Settings are locked while listening is enabled to avoid mid-session changes.
 
 ## Configuration
 
 The configuration file `shubiao.ini` is stored at:
 
 - **Standard**: `%APPDATA%\AkiClick\shubiao.ini`
-- **Portable**: Same directory as the executable
+- **Portable**: Same directory as the executable (a `shubiao.ini` next to `AkiClick.exe` is used automatically)
+
+Missing keys and out-of-range values are repaired to defaults on startup.
 
 ### Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
 | `mode` | Click mode (0=Left, 1=Right, 2=Double) | 0 |
-| `freq` | Click interval in milliseconds | 700 |
-| `clicktimes` | Number of clicks (0 = infinite) | 100 |
-| `clickstate` | Click state (1=enabled) | 1 |
-| `showstate` | Show state (0=hidden) | 0 |
-| `left` | Start hotkey VK code | 120 (F9) |
-| `right` | Stop hotkey VK code | 121 (F10) |
-| `stop` | Exit hotkey VK code | 122 (F11) |
+| `freq` | Click interval in milliseconds (1–60000) | 700 |
+| `clicktimes` | Number of clicks (0 = infinite, max 999999) | 100 |
+| `clickstate` | Unused; kept for 鼠标连点器 compatibility | 1 |
+| `showstate` | Unused; kept for 鼠标连点器 compatibility | 0 |
+| `left` | **Start** hotkey VK code | 120 (F9) |
+| `right` | **Stop** hotkey VK code | 121 (F10) |
+| `stop` | **Exit** hotkey VK code | 122 (F11) |
+| `theme` | UI theme (`dark` / `light`) | dark |
+| `lang` | UI language (`en` / `zh`) | en |
+| `always_on_top` | Start with window always on top (0/1) | 1 |
+
+> Note: the legacy key names are inherited from 鼠标连点器 — `left`/`right`/`stop` actually mean start/stop/exit, not mouse buttons.
 
 ## Tech Stack
 
-- **Frontend**: React 18, TypeScript, Tailwind CSS
+- **Frontend**: React 18, TypeScript, Vite
 - **Backend**: Rust, Tauri v2
 - **Click Engine**: enigo (SendInput API)
 
 ## License
 
-MIT License
+[MIT](LICENSE)
 
 ---
 
@@ -97,27 +94,29 @@ MIT License
 
 ## 功能特性
 
-- **三种点击模式**：左键点击、右键点击、双击
-- **自定义间隔**：设置 1ms 到 60,000ms 的点击间隔
+- **三种点击模式**：左键点击、右键点击、双击（每个间隔执行一次双击）
+- **自定义间隔**：1 毫秒到 60,000 毫秒（实际精度受 Windows 系统定时器粒度限制，约 15 毫秒）
 - **点击次数**：设置点击次数或无限运行（0 = ∞）
-- **全局热键**：F9 开始，F10 停止，F11 退出（可自定义）
-- **系统托盘**：最小化到托盘，支持菜单控制
+- **全局热键**：F9 开始，F10 停止，F11 退出（可自定义，保存后立即生效，无需重启）
+- **监听开关**：热键仅在启用监听后生效；关闭监听会同时停止正在进行的点击
+- **系统托盘**：菜单控制（显示 / 启用监听 / 退出）；关闭窗口即退出程序
 - **窗口置顶**：保持窗口在其他窗口上方
 - **深色/浅色主题**：切换主题
-- **便携模式**：在可执行文件旁放置 `shubiao.ini`
+- **界面语言**：英文和中文
+- **便携模式**：在可执行文件旁放置 `shubiao.ini` —— 全部设置（含主题/语言）都保存在 INI 中
 - **REF 兼容**：使用与鼠标连点器相同的配置格式
 
 ## 安装
 
 ### 下载
 
-从 [Releases](https://github.com/AkiroDev/AkiClick/releases) 下载最新版本。
+从 [Releases](https://github.com/AkiroMusic/AkiClick/releases) 下载最新版本。
 
 ### 从源码构建
 
 ```bash
 # 克隆仓库
-git clone https://github.com/AkiroDev/AkiClick.git
+git clone https://github.com/AkiroMusic/AkiClick.git
 cd AkiClick
 
 # 安装依赖
@@ -127,57 +126,52 @@ npm install
 npm run tauri build
 ```
 
-安装包位于 `src-tauri/target/release/bundle/nsis/AkiClick_1.0.0_x64-setup.exe`。
+安装包位于 `src-tauri/target/release/bundle/nsis/AkiClick_1.3.0_x64-setup.exe`。
 
 ## 使用方法
 
 1. 运行 `AkiClick.exe`
-2. 配置点击模式、间隔和次数
-3. 按 **F9** 开始点击
-4. 按 **F10** 停止点击
-5. 按 **F11** 退出应用
+2. 配置点击模式、间隔和次数，然后点击**保存**
+3. 点击**启用监听**
+4. 按 **F9** 开始点击
+5. 按 **F10** 停止点击
+6. 按 **F11** 退出应用
 
-### 便携模式
-
-在 `AkiClick.exe` 旁边创建 `shubiao.ini` 文件，内容如下：
-
-```ini
-mode=0
-freq=700
-clicktimes=100
-clickstate=1
-showstate=0
-left=120
-right=121
-stop=122
-```
+启用监听期间设置会被锁定，避免点击过程中途变更。
 
 ## 配置
 
 配置文件 `shubiao.ini` 存储位置：
 
 - **标准模式**：`%APPDATA%\AkiClick\shubiao.ini`
-- **便携模式**：与可执行文件相同目录
+- **便携模式**：与可执行文件相同目录（自动检测）
+
+启动时会自动修复缺失的键和超出范围的值。
 
 ### 配置选项
 
 | 选项 | 描述 | 默认值 |
 |------|------|--------|
 | `mode` | 点击模式（0=左键，1=右键，2=双击） | 0 |
-| `freq` | 点击间隔（毫秒） | 700 |
-| `clicktimes` | 点击次数（0=无限） | 100 |
-| `clickstate` | 点击状态（1=启用） | 1 |
-| `showstate` | 显示状态（0=隐藏） | 0 |
-| `left` | 开始热键 VK 码 | 120 (F9) |
-| `right` | 停止热键 VK 码 | 121 (F10) |
-| `stop` | 退出热键 VK 码 | 122 (F11) |
+| `freq` | 点击间隔（毫秒，1–60000） | 700 |
+| `clicktimes` | 点击次数（0=无限，最大 999999） | 100 |
+| `clickstate` | 未使用；仅为鼠标连点器兼容保留 | 1 |
+| `showstate` | 未使用；仅为鼠标连点器兼容保留 | 0 |
+| `left` | **开始**热键 VK 码 | 120 (F9) |
+| `right` | **停止**热键 VK 码 | 121 (F10) |
+| `stop` | **退出**热键 VK 码 | 122 (F11) |
+| `theme` | 界面主题（`dark` / `light`） | dark |
+| `lang` | 界面语言（`en` / `zh`） | en |
+| `always_on_top` | 启动时窗口置顶（0/1） | 1 |
+
+> 注意：遗留键名继承自鼠标连点器 —— `left`/`right`/`stop` 实际含义是开始/停止/退出，与鼠标按键无关。
 
 ## 技术栈
 
-- **前端**：React 18、TypeScript、Tailwind CSS
+- **前端**：React 18、TypeScript、Vite
 - **后端**：Rust、Tauri v2
 - **点击引擎**：enigo（SendInput API）
 
 ## 许可证
 
-MIT 许可证
+[MIT](LICENSE)

@@ -1,9 +1,13 @@
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, Code, Modifiers};
-use crate::AppState;
+use crate::clicker::ClickEngine;
 use crate::clicker::ClickMode;
+use crate::config::Config;
+use crate::i18n::Lang;
+use crate::AppState;
+use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Convert Windows VK code to Tauri Code enum
+/// Convert Windows VK code to Tauri Code enum.
+/// Keep in sync with `VK_CODES` in `src/vkCodes.ts` on the frontend.
 fn vk_to_code(vk: u32) -> Option<Code> {
     match vk {
         // Function keys
@@ -72,63 +76,137 @@ fn vk_to_code(vk: u32) -> Option<Code> {
     }
 }
 
-pub fn register_hotkeys(app_handle: &AppHandle, config: &crate::config::Config) {
+pub fn is_known_vk(vk: u32) -> bool {
+    vk_to_code(vk).is_some()
+}
+
+pub fn register_hotkeys(app_handle: &AppHandle, config: &Config) {
     unregister_all(app_handle);
 
-    // Register start hotkey (e.g., F9)
-    if let Some(code) = vk_to_code(config.left) {
+    let lang = crate::i18n::lang_of(&config.lang);
+
+    // Start hotkey (legacy INI key: `left`)
+    if let Some(code) = vk_to_code(config.start_vk()) {
         let shortcut = Shortcut::new(Some(Modifiers::empty()), code);
-        let _ = app_handle.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
-            let state = _app.state::<AppState>();
-            let listening = *state.listening.lock().unwrap();
-            if listening {
-                let config = state.config.lock().unwrap().clone().unwrap_or_default();
-                let mode = ClickMode::from(config.mode);
-                let interval_ms = config.freq;
-                let count = config.clicktimes;
-                
-                let engine = {
-                    let mut click_engine_guard = state.click_engine.lock().unwrap();
-                    if click_engine_guard.is_none() {
-                        *click_engine_guard = Some(crate::clicker::ClickEngine::new());
-                    }
-                    click_engine_guard.as_ref().unwrap().clone()
-                };
-                
-                if engine.start(mode, interval_ms, count).is_ok() {
-                    _app.emit("click-state-changed", serde_json::json!({ "isRunning": true })).ok();
+        let key_name = shortcut.into_string();
+        let result = app_handle.global_shortcut().on_shortcut(
+            shortcut,
+            move |app, _shortcut, event| {
+                // The plugin fires on both press and release; act on press only.
+                if event.state != ShortcutState::Pressed {
+                    return;
                 }
-            }
-        });
+                let state = app.state::<AppState>();
+                if !*state.listening.lock() {
+                    return;
+                }
+                let config = state.config.lock().clone().unwrap_or_default();
+                let engine = get_or_create_engine(&state);
+                if engine
+                    .start(
+                        app.clone(),
+                        ClickMode::from(config.mode),
+                        config.interval_ms(),
+                        config.click_count(),
+                    )
+                    .is_ok()
+                {
+                    app.emit("click-state-changed", serde_json::json!({ "isRunning": true })).ok();
+                }
+            },
+        );
+        if let Err(e) = result {
+            report_registration_error(app_handle, lang, "start", &key_name, e.to_string());
+        }
+    } else {
+        report_invalid_vk(app_handle, lang, "start", config.start_vk());
     }
 
-    // Register stop hotkey (e.g., F10)
-    if let Some(code) = vk_to_code(config.right) {
+    // Stop hotkey (legacy INI key: `right`)
+    if let Some(code) = vk_to_code(config.stop_vk()) {
         let shortcut = Shortcut::new(Some(Modifiers::empty()), code);
-        let _ = app_handle.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
-            let state = _app.state::<AppState>();
-            let engine = {
-                let click_engine_guard = state.click_engine.lock().unwrap();
-                click_engine_guard.as_ref().cloned()
-            };
-            
-            if let Some(engine) = engine {
-                if engine.stop().is_ok() {
-                    _app.emit("click-state-changed", serde_json::json!({ "isRunning": false })).ok();
+        let key_name = shortcut.into_string();
+        let result = app_handle.global_shortcut().on_shortcut(
+            shortcut,
+            move |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
                 }
-            }
-        });
+                stop_engine(app);
+                // The click worker emits "click-state-changed" when it exits.
+            },
+        );
+        if let Err(e) = result {
+            report_registration_error(app_handle, lang, "stop", &key_name, e.to_string());
+        }
+    } else {
+        report_invalid_vk(app_handle, lang, "stop", config.stop_vk());
     }
 
-    // Register exit hotkey (e.g., F11)
-    if let Some(code) = vk_to_code(config.stop) {
+    // Exit hotkey (legacy INI key: `stop`) — gated on listening like the others
+    if let Some(code) = vk_to_code(config.exit_vk()) {
         let shortcut = Shortcut::new(Some(Modifiers::empty()), code);
-        let _ = app_handle.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
-            _app.exit(0);
-        });
+        let key_name = shortcut.into_string();
+        let result = app_handle.global_shortcut().on_shortcut(
+            shortcut,
+            move |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+                let state = app.state::<AppState>();
+                if !*state.listening.lock() {
+                    return;
+                }
+                stop_engine(app);
+                app.exit(0);
+            },
+        );
+        if let Err(e) = result {
+            report_registration_error(app_handle, lang, "exit", &key_name, e.to_string());
+        }
+    } else {
+        report_invalid_vk(app_handle, lang, "exit", config.exit_vk());
     }
 }
 
 pub fn unregister_all(app_handle: &AppHandle) {
-    let _ = app_handle.global_shortcut().unregister_all();
+    if let Err(e) = app_handle.global_shortcut().unregister_all() {
+        tracing::warn!("failed to unregister hotkeys: {e}");
+    }
+}
+
+/// Stop the click engine if a session is running. Safe to call when idle.
+/// The click worker emits "click-state-changed" when it exits.
+pub fn stop_engine(app_handle: &AppHandle) {
+    let state = app_handle.state::<AppState>();
+    let engine = state.click_engine.lock().clone();
+    if let Some(engine) = engine {
+        if let Err(e) = engine.stop() {
+            if e != "Not running" {
+                tracing::warn!("failed to stop click engine: {e}");
+            }
+        }
+    }
+}
+
+fn get_or_create_engine(state: &tauri::State<'_, AppState>) -> ClickEngine {
+    let mut guard = state.click_engine.lock();
+    if guard.is_none() {
+        *guard = Some(ClickEngine::new());
+    }
+    guard.as_ref().unwrap().clone()
+}
+
+fn report_registration_error(app_handle: &AppHandle, lang: Lang, action: &str, key: &str, err: String) {
+    tracing::error!("hotkey registration failed: action={action} key={key} error={err}");
+    app_handle
+        .emit("hotkey-error", serde_json::json!({ "message": lang.hotkey_error(action, key) }))
+        .ok();
+}
+
+fn report_invalid_vk(app_handle: &AppHandle, lang: Lang, action: &str, vk: u32) {
+    tracing::error!("invalid hotkey VK code: action={action} vk={vk}");
+    app_handle
+        .emit("hotkey-error", serde_json::json!({ "message": lang.hotkey_invalid(action, vk) }))
+        .ok();
 }

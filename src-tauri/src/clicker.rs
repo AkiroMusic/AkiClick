@@ -1,8 +1,14 @@
 use enigo::{Enigo, MouseControllable};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+
+/// Interval sleeps are broken into slices of this length so stop/exit respond
+/// quickly even when the configured interval is 60 seconds.
+const SLICE_MS: u64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickMode {
@@ -24,33 +30,39 @@ impl From<u32> for ClickMode {
 
 #[derive(Clone)]
 pub struct ClickEngine {
-    running: Arc<Mutex<bool>>,
+    /// Atomic so `stop` can flip it without holding the handle lock — the
+    /// worker must always be able to observe the flag to exit.
+    running: Arc<AtomicBool>,
     handle: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
 }
 
 impl ClickEngine {
     pub fn new() -> Self {
         Self {
-            running: Arc::new(Mutex::new(false)),
+            running: Arc::new(AtomicBool::new(false)),
             handle: Arc::new(Mutex::new(None)),
         }
     }
 
-    pub fn start(&self, mode: ClickMode, interval_ms: u32, count: u32) -> Result<(), String> {
-        let mut running = self.running.lock();
-        if *running {
+    pub fn start(
+        &self,
+        app_handle: AppHandle,
+        mode: ClickMode,
+        interval_ms: u32,
+        count: u32,
+    ) -> Result<(), String> {
+        if self.running.swap(true, Ordering::SeqCst) {
             return Err("Already running".to_string());
         }
-        *running = true;
 
-        let running_clone = self.running.clone();
+        let running = Arc::clone(&self.running);
+        let interval = Duration::from_millis(interval_ms.max(1) as u64);
         let handle = thread::spawn(move || {
             let mut enigo = Enigo::new();
-            let interval = Duration::from_millis(interval_ms as u64);
             let mut clicks_done = 0u32;
             let infinite = count == 0;
 
-            while *running_clone.lock() && (infinite || clicks_done < count) {
+            while running.load(Ordering::SeqCst) && (infinite || clicks_done < count) {
                 match mode {
                     ClickMode::Left => {
                         enigo.mouse_click(enigo::MouseButton::Left);
@@ -69,31 +81,42 @@ impl ClickEngine {
                     clicks_done += 1;
                 }
 
-                thread::sleep(interval);
+                sleep_interruptible(&running, interval);
             }
 
-            *running_clone.lock() = false;
+            running.store(false, Ordering::SeqCst);
+            // Emit unconditionally so the UI recovers both after a counted run
+            // finishes naturally and after an explicit stop.
+            app_handle
+                .emit("click-state-changed", serde_json::json!({ "isRunning": false }))
+                .ok();
         });
 
         *self.handle.lock() = Some(handle);
         Ok(())
     }
 
+    /// Flip the flag first, then join outside of any lock: the worker needs
+    /// no lock held by us to exit, so this can never deadlock.
     pub fn stop(&self) -> Result<(), String> {
-        let mut running = self.running.lock();
-        if !*running {
+        if !self.running.swap(false, Ordering::SeqCst) {
             return Err("Not running".to_string());
         }
-        *running = false;
-
-        if let Some(handle) = self.handle.lock().take() {
+        let handle = self.handle.lock().take();
+        if let Some(handle) = handle {
             let _ = handle.join();
         }
         Ok(())
     }
+}
 
-    pub fn is_running(&self) -> bool {
-        *self.running.lock()
+fn sleep_interruptible(running: &AtomicBool, total: Duration) {
+    let slice = Duration::from_millis(SLICE_MS);
+    let mut remaining = total;
+    while remaining > Duration::ZERO && running.load(Ordering::SeqCst) {
+        let step = remaining.min(slice);
+        thread::sleep(step);
+        remaining = remaining.saturating_sub(step);
     }
 }
 

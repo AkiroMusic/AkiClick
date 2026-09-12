@@ -265,6 +265,21 @@ html, body, #root {
   text-align: center;
   font-style: italic;
 }
+.hotkey-hint.error {
+  color: var(--err);
+  font-style: normal;
+}
+
+/* Keyboard focus visibility */
+.icon-btn:focus-visible,
+.seg-btn:focus-visible,
+.num-input:focus-visible,
+.hk-input:focus-visible,
+.save-btn:focus-visible,
+.listen-btn:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
 
 /* Separator */
 .sep {
@@ -445,3 +460,20 @@ html, body, #root {
 .app-content::-webkit-scrollbar { width: 4px; }
 .app-content::-webkit-scrollbar-track { background: transparent; }
 .app-content::-webkit-scrollbar-thumb { background: var(--brd); border-radius: 2px; }
+
+/* Respect reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .dot.on,
+  .dot.clicking,
+  .saved-indicator {
+    animation: none;
+  }
+  .icon-btn,
+  .seg-btn,
+  .num-input,
+  .hk-input,
+  .save-btn,
+  .listen-btn {
+    transition: none;
+  }
+}
