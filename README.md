@@ -2,6 +2,11 @@
 
 A lightweight Windows auto-clicker built with Tauri v2, Rust, and React.
 
+[![Release](https://img.shields.io/github/v/release/AkiroMusic/AkiClick)](https://github.com/AkiroMusic/AkiClick/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Built with Tauri v2](https://img.shields.io/badge/built%20with-Tauri%20v2-24C8D8?logo=tauri&logoColor=black)](https://v2.tauri.app/)
+[![Platform](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/AkiroMusic/AkiClick/releases/latest)
+
 ## Features
 
 - **Three click modes**: Left click, Right click, Double click (one double-click per interval)
